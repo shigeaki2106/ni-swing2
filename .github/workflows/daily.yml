@@ -1,17 +1,28 @@
-name: Daily Japan Stock Signal Notification
+name: Japan Stock Swing Notifications
 
-# 日本市場引け後の 06:30 JST = 平日 21:30 UTC(前日)
-# 米市場と違って日本市場は早いので、夕方〜夜の通知でもOK
-# ここでは朝の通知に統一して 06:30 JST
+# ────────────────────────────────────────────────
+#  JST = UTC+9  |  平日3回 + 週末1回
+#
+#  平日(月〜金 JST):
+#    朝  7:00 JST = 前日/当日 22:00 UTC  → cron 0 22 * * 0-4
+#    昼 12:30 JST = 当日      03:30 UTC  → cron 30 3 * * 1-5
+#    夜 20:00 JST = 当日      11:00 UTC  → cron 0 11 * * 1-5
+#
+#  週末(土・日 JST):
+#    朝  8:00 JST = 前日      23:00 UTC  → cron 0 23 * * 5,6
+# ────────────────────────────────────────────────
 on:
   schedule:
-    - cron: '30 21 * * 0-4'  # 日UTC=月JST から 木UTC=金JST まで(=月〜金 JST朝)
-  workflow_dispatch:  # 手動実行も可能(テスト用)
+    - cron: '0 22 * * 0-4'   # 平日 朝  7:00 JST
+    - cron: '30 3 * * 1-5'   # 平日 昼 12:30 JST
+    - cron: '0 11 * * 1-5'   # 平日 夜 20:00 JST
+    - cron: '0 23 * * 5,6'   # 週末 朝  8:00 JST (土・日)
+  workflow_dispatch:          # 手動実行も可能(テスト用)
 
 jobs:
   notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # 財務データ取得で時間かかるので余裕を持たせる
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -28,8 +39,36 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run daily notification
+      - name: Detect notify mode
+        id: mode
+        run: |
+          # UTC時刻とdow(曜日: 0=日, 1=月...6=土)からモードを自動判定
+          HOUR=$(date -u +%H)
+          DOW=$(date -u +%w)   # 0=Sun, 1=Mon, ... 6=Sat
+          MIN=$(date -u +%M)
+
+          if [ "$DOW" = "5" ] && [ "$HOUR" = "23" ]; then
+            echo "mode=weekend_sat" >> $GITHUB_OUTPUT
+          elif [ "$DOW" = "6" ] && [ "$HOUR" = "23" ]; then
+            echo "mode=weekend_sun" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "22" ]; then
+            echo "mode=morning" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "3" ]; then
+            echo "mode=noon" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "11" ]; then
+            echo "mode=evening" >> $GITHUB_OUTPUT
+          else
+            echo "mode=morning" >> $GITHUB_OUTPUT
+          fi
+          echo "Detected mode: $(cat $GITHUB_OUTPUT | grep mode= | tail -1)"
+
+      - name: Run notification
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFY_MODE: ${{ steps.mode.outputs.mode }}
         run: |
-          python notify_daily.py
+          if [[ "$NOTIFY_MODE" == weekend_* ]]; then
+            python notify_weekend.py
+          else
+            python notify_daily.py
+          fi
