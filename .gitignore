@@ -1,0 +1,46 @@
+# Discord Webhook URL — 絶対に公開してはいけない
+discord_config.txt
+
+# Python キャッシュ
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 個人のトレード履歴
+trades/
+ニュース/
+
+# 楽天証券からダウンロードしたCSV(個人情報を含む可能性)
+*.csv
+!sample.csv
+
+# 分析結果フォルダ(個人の取引記録)
+results/
+
+# ローカルウォッチリスト(GitHubに上げると個人の追跡銘柄が見える)
+watchlist.json
+
+# OS ファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+
+# 環境変数
+.env
+.env.local
+
+# 米すいんぐは別の Git リポジトリ(bei-swing)なので除外
+米/
+
+# その他 一時ファイル
+*.tmp
+*.log
+
+# HTML ダッシュボード(個人用)
+朝のマーケットダッシュボード.html

@@ -1,0 +1,35 @@
+name: Daily Japan Stock Signal Notification
+
+# 日本市場引け後の 06:30 JST = 平日 21:30 UTC(前日)
+# 米市場と違って日本市場は早いので、夕方〜夜の通知でもOK
+# ここでは朝の通知に統一して 06:30 JST
+on:
+  schedule:
+    - cron: '30 21 * * 0-4'  # 日UTC=月JST から 木UTC=金JST まで(=月〜金 JST朝)
+  workflow_dispatch:  # 手動実行も可能(テスト用)
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # 財務データ取得で時間かかるので余裕を持たせる
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run daily notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python notify_daily.py
