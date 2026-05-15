@@ -28,7 +28,8 @@ sys.path.insert(0, SCRIPT_DIR)
 
 
 def main():
-    print(f"=== 日本株スイング 日次通知 {datetime.datetime.utcnow().isoformat()} UTC ===")
+    mode = os.environ.get('NOTIFY_MODE', 'morning').strip()
+    print(f"=== 日本株スイング 日次通知 [{mode}] {datetime.datetime.utcnow().isoformat()} UTC ===")
 
     # Webhook URL 確認
     webhook = os.environ.get('DISCORD_WEBHOOK_URL', '').strip()
@@ -36,6 +37,15 @@ def main():
         print("ERROR: 環境変数 DISCORD_WEBHOOK_URL が設定されていません")
         sys.exit(1)
     print(f"Webhook: {webhook[:60]}...")
+
+    # ── モード分岐 ──
+    if mode == 'noon':
+        _noon_report(webhook)
+        return
+    if mode == 'evening':
+        _evening_report(webhook)
+        return
+    # morning(デフォルト)はそのまま下へ
 
     # 必要モジュール
     try:
@@ -207,6 +217,147 @@ def _get_ticker_name(code, ticker):
         pass
 
     return code
+
+
+def _noon_report(webhook):
+    """昼 12:30 JST — 前場終了チェック"""
+    import yfinance as yf
+
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    jst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+    print(f"[昼レポート] {today_str} {jst_now.strftime('%H:%M')} JST")
+
+    try:
+        from swing_analyzer import check_nikkei_q1
+        from notifier import _post
+    except ImportError as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
+
+    # 日経225 現在値
+    nk = yf.Ticker("^N225")
+    hist = nk.history(period='5d')
+    n225_now = hist['Close'].iloc[-1]
+    n225_prev = hist['Close'].iloc[-2]
+    n225_chg = (n225_now - n225_prev) / n225_prev * 100
+
+    # USD/JPY
+    usdjpy_val = "---"
+    try:
+        fx = yf.Ticker("JPY=X")
+        fx_hist = fx.history(period='2d')
+        usdjpy_val = f"{fx_hist['Close'].iloc[-1]:.2f}円"
+    except Exception:
+        pass
+
+    # Q1 地合い
+    q1_status, q1_msg = check_nikkei_q1()
+    q1_label = {'go': '🟢 強気', 'caution': '🟡 中立', 'stop': '🔴 弱気'}.get(q1_status, '?')
+    q1_color = {'go': 0x1D9E75, 'caution': 0xEF9F27, 'stop': 0xE24B4A}.get(q1_status, 0x888780)
+
+    chg_icon = "📈" if n225_chg >= 0 else "📉"
+    chg_str = f"{n225_chg:+.2f}%"
+
+    payload = {
+        'content': f"🕐 **{today_str} 昼チェック（前場終了）**",
+        'embeds': [
+            {
+                'title': f'{chg_icon} 日経225  {n225_now:,.0f}円  ({chg_str})',
+                'description': (
+                    f"**USD/JPY**: {usdjpy_val}\n"
+                    f"**地合い**: {q1_label}\n"
+                    f"```{q1_msg}```\n"
+                    f"後場は 12:30〜15:30 JST です。地合いを確認して慎重に。"
+                ),
+                'color': q1_color,
+            }
+        ],
+    }
+    ok, msg = _post(payload, webhook)
+    print(f"  {'✅' if ok else '❌'} {msg}")
+    if not ok:
+        sys.exit(1)
+
+
+def _evening_report(webhook):
+    """夜 20:00 JST — 後場終了レビュー"""
+    import yfinance as yf
+
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    jst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+    print(f"[夜レポート] {today_str} {jst_now.strftime('%H:%M')} JST")
+
+    try:
+        from notifier import _post
+    except ImportError as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
+
+    # 日経225 本日終値
+    nk = yf.Ticker("^N225")
+    hist = nk.history(period='5d')
+    n225_close = hist['Close'].iloc[-1]
+    n225_open  = hist['Open'].iloc[-1]
+    n225_high  = hist['High'].iloc[-1]
+    n225_low   = hist['Low'].iloc[-1]
+    n225_prev  = hist['Close'].iloc[-2]
+    n225_chg   = (n225_close - n225_prev) / n225_prev * 100
+
+    # TOPIX
+    topix_chg_str = "---"
+    try:
+        tp = yf.Ticker("^TOPX")
+        tp_hist = tp.history(period='5d')
+        if len(tp_hist) >= 2:
+            tc = tp_hist['Close'].iloc[-1]
+            tp = tp_hist['Close'].iloc[-2]
+            topix_chg_str = f"{(tc - tp) / tp * 100:+.2f}%"
+    except Exception:
+        pass
+
+    # USD/JPY
+    usdjpy_val = "---"
+    try:
+        fx = yf.Ticker("JPY=X")
+        fx_hist = fx.history(period='2d')
+        usdjpy_val = f"{fx_hist['Close'].iloc[-1]:.2f}円"
+    except Exception:
+        pass
+
+    chg_icon = "📈" if n225_chg >= 0 else "📉"
+    chg_str = f"{n225_chg:+.2f}%"
+    color = 0x1D9E75 if n225_chg >= 0 else 0xE24B4A
+
+    # 明日の一言アドバイス
+    if n225_chg >= 1.5:
+        advice = "強い上昇日でした。明日は利食い売りに注意。高値追いは慎重に。"
+    elif n225_chg >= 0:
+        advice = "小幅高で安定。明日も地合いを確認してからエントリーしましょう。"
+    elif n225_chg >= -1.5:
+        advice = "小幅安。大きな崩れではありません。明日の寄り付き確認を。"
+    else:
+        advice = "大幅安の一日でした。明日は様子見が無難。焦りは禁物です。"
+
+    payload = {
+        'content': f"🌙 **{today_str} 夜レビュー（後場終了）**",
+        'embeds': [
+            {
+                'title': f'{chg_icon} 日経225 終値  {n225_close:,.0f}円  ({chg_str})',
+                'description': (
+                    f"**始値**: {n225_open:,.0f}円　"
+                    f"**高値**: {n225_high:,.0f}円　"
+                    f"**安値**: {n225_low:,.0f}円\n"
+                    f"**TOPIX**: {topix_chg_str}　**USD/JPY**: {usdjpy_val}\n\n"
+                    f"💡 {advice}"
+                ),
+                'color': color,
+            }
+        ],
+    }
+    ok, msg = _post(payload, webhook)
+    print(f"  {'✅' if ok else '❌'} {msg}")
+    if not ok:
+        sys.exit(1)
 
 
 if __name__ == '__main__':
