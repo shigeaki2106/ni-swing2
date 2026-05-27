@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>📊 スイング分析 スマホ版</title>
+  <style>
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d2e;
+      --surface2: #252840;
+      --accent:   #4f8ef7;
+      --green:    #22c55e;
+      --yellow:   #eab308;
+      --red:      #ef4444;
+      --text:     #e2e8f0;
+      --dim:      #94a3b8;
+      --border:   #2d3158;
+      --r:        12px;
+      --rs:       8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system,'Helvetica Neue',sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 14px; }
+
+    /* ── ヘッダー ── */
+    .hdr { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 18px; margin-bottom: 14px; text-align: center; }
+    .hdr h1 { font-size: 21px; color: #fff; margin-bottom: 3px; }
+    .hdr p  { font-size: 12px; color: var(--dim); }
+
+    /* ── カード ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; margin-bottom: 12px; }
+    .card-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+
+    /* ── アップロード ── */
+    .upload-area { border: 2px dashed var(--border); border-radius: var(--r); padding: 30px 16px; text-align: center; cursor: pointer; }
+    .upload-area:active { border-color: var(--accent); }
+    .upload-icon { font-size: 44px; margin-bottom: 8px; }
+    .upload-text { font-size: 16px; font-weight: 600; }
+    .upload-hint { font-size: 12px; color: var(--dim); margin-top: 4px; }
+    #csv-input { display: none; }
+
+    /* ── Q1バナー ── */
+    .q1b { padding: 13px 15px; border-radius: var(--rs); margin-bottom: 0; font-weight: 700; font-size: 15px; }
+    .q1b .sub { font-size: 12px; font-weight: 400; margin-top: 3px; opacity: .8; }
+    .q1b .chg { font-size: 12px; color: var(--dim); margin-top: 6px; cursor: pointer; text-decoration: underline; }
+    .q1-go     { background: rgba(34,197,94,.15);  border-left: 4px solid var(--green);  }
+    .q1-caution{ background: rgba(234,179,8,.15);  border-left: 4px solid var(--yellow); }
+    .q1-stop   { background: rgba(239,68,68,.15);  border-left: 4px solid var(--red);    }
+    .q1-unk    { background: rgba(148,163,184,.1); border-left: 4px solid var(--dim);    }
+
+    /* ── 手動Q1 ── */
+    .q1-manual-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 10px; }
+    .q1m { padding: 10px 6px; border-radius: var(--rs); border: 2px solid var(--border); text-align: center; cursor: pointer; font-size: 13px; font-weight: 600; background: var(--surface2); }
+    .q1m.sel-go  { border-color: var(--green);  color: var(--green);  background: rgba(34,197,94,.1);  }
+    .q1m.sel-cau { border-color: var(--yellow); color: var(--yellow); background: rgba(234,179,8,.1);  }
+    .q1m.sel-stp { border-color: var(--red);    color: var(--red);    background: rgba(239,68,68,.1);  }
+
+    /* ── 情報グリッド ── */
+    .ig { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; margin-bottom: 12px; }
+    .ii { background: var(--surface2); border-radius: var(--rs); padding: 10px; }
+    .il { font-size: 11px; color: var(--dim); margin-bottom: 2px; }
+    .iv { font-size: 15px; font-weight: 700; }
+    .iv.g { color: var(--green); } .iv.y { color: var(--yellow); } .iv.r { color: var(--red); }
+
+    /* ── 銘柄カード ── */
+    .scard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 12px; overflow: hidden; }
+    .shdr  { padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+    .scode { font-size: 18px; font-weight: 800; color: var(--accent); }
+    .sname { font-size: 12px; color: var(--dim); margin-top: 2px; }
+    .sbody { padding: 0 16px 16px; display: none; }
+    .sbody.open { display: block; }
+
+    /* ── リンクボタン ── */
+    .lbtn { display: block; text-align: center; padding: 11px; background: rgba(79,142,247,.12); border: 1px solid var(--accent); border-radius: var(--rs); color: var(--accent); font-weight: 600; font-size: 14px; text-decoration: none; margin-bottom: 12px; }
+
+    /* ── 質問 ── */
+    .qsec { margin-bottom: 14px; }
+    .qtitle { font-size: 12px; font-weight: 700; color: var(--dim); margin-bottom: 6px; letter-spacing: .3px; }
+    .qhint  { font-size: 11px; color: var(--dim); margin-bottom: 6px; opacity: .8; }
+    .qopts  { display: flex; flex-direction: column; gap: 5px; }
+    .qopt   { display: flex; align-items: center; gap: 9px; padding: 10px 12px; background: var(--surface2); border: 2px solid transparent; border-radius: var(--rs); cursor: pointer; font-size: 13px; line-height: 1.4; }
+    .qopt.sp { border-color: var(--green); background: rgba(34,197,94,.1); }
+    .qopt.sf { border-color: var(--red);   background: rgba(239,68,68,.1); }
+    .qrad { width: 17px; height: 17px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0; }
+    .qopt.sp .qrad { background: var(--green); border-color: var(--green); }
+    .qopt.sf .qrad { background: var(--red);   border-color: var(--red);   }
+    .pts { color: var(--accent); font-size: 11px; }
+
+    /* ── スコアバー ── */
+    .sbar { margin-top: 14px; background: var(--surface2); border-radius: var(--r); padding: 14px; }
+    .sval { font-size: 38px; font-weight: 800; text-align: center; }
+    .sgrade { text-align: center; font-size: 15px; font-weight: 700; margin-top: 2px; }
+    .prog { height: 7px; background: var(--border); border-radius: 4px; margin: 10px 0; overflow: hidden; }
+    .progf { height: 100%; border-radius: 4px; transition: width .3s; width: 0%; background: var(--accent); }
+    .sbdown { display: grid; grid-template-columns: repeat(5,1fr); gap: 4px; margin-top: 8px; }
+    .sbi { text-align: center; background: var(--surface); border-radius: var(--rs); padding: 6px 2px; }
+    .sbi-l { font-size: 10px; color: var(--dim); }
+    .sbi-v { font-size: 13px; font-weight: 700; color: var(--accent); }
+
+    /* ── 判定バッジ ── */
+    .vbadge { display: block; text-align: center; padding: 12px; border-radius: var(--rs); font-size: 16px; font-weight: 700; margin-top: 12px; }
+    .vpass { background: rgba(34,197,94,.2);  color: var(--green);  border: 2px solid var(--green); }
+    .vfail { background: rgba(239,68,68,.2);  color: var(--red);    border: 2px solid var(--red);   }
+    .vpend { background: rgba(148,163,184,.08); color: var(--dim);  border: 2px solid var(--border); font-size: 13px; }
+
+    /* ── 見送りリスト ── */
+    .fitem { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: var(--surface2); border-radius: var(--rs); margin-bottom: 5px; font-size: 12px; }
+    .fcode { font-weight: 700; color: var(--dim); }
+    .freason { color: var(--red); font-size: 11px; text-align: right; max-width: 55%; }
+
+    /* ── 通知ボックス ── */
+    .notice { background: rgba(234,179,8,.1); border: 1px solid var(--yellow); border-radius: var(--rs); padding: 12px; font-size: 13px; color: var(--yellow); margin-bottom: 12px; }
+    .notice.stop { background: rgba(239,68,68,.1); border-color: var(--red); color: var(--red); }
+
+    /* ── サマリー ── */
+    .sumcard { background: linear-gradient(135deg,rgba(79,142,247,.1),rgba(79,142,247,.04)); border: 1px solid var(--accent); border-radius: var(--r); padding: 16px; margin-bottom: 12px; }
+    .sumtitle { font-size: 13px; color: var(--accent); font-weight: 700; margin-bottom: 8px; }
+    .sumrow { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .sumrow:last-child { border-bottom: none; }
+
+    /* ── スピナー ── */
+    .spin { display: inline-block; width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: sp .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+
+    /* ── テキスト入力 ── */
+    .tinput { width: 100%; padding: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--rs); color: var(--text); font-size: 14px; margin-top: 4px; }
+    .tinput:focus { outline: none; border-color: var(--accent); }
+
+    .divider { height: 1px; background: var(--border); margin: 12px 0; }
+    .hidden { display: none !important; }
+    #main { display: none; }
+    .footer { text-align: center; color: var(--dim); font-size: 12px; padding: 16px 0 8px; }
+  </style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>📊 スイング分析 スマホ版</h1>
+  <p>楽天証券CSVを読み込んで13の関門を精査</p>
+</div>
+
+<!-- ── STEP1: CSV アップロード ── -->
+<div class="card" id="upload-card">
+  <div class="card-title">📁 楽天証券CSVを選択</div>
+  <div class="upload-area" onclick="document.getElementById('csv-input').click()">
+    <div class="upload-icon">📂</div>
+    <div class="upload-text">CSVファイルをタップして選択</div>
+    <div class="upload-hint">スーパースクリーナーで「CSV出力」したファイル</div>
+  </div>
+  <input type="file" id="csv-input" accept=".csv">
+</div>
+
+<!-- ── メイン ── -->
+<div id="main">
+
+  <!-- Q1 地合い -->
+  <div class="card">
+    <div class="card-title">🌍 Q1 地合い判定（日経平均）</div>
+    <div id="q1-loading" style="font-size:14px;color:var(--dim)">
+      <span class="spin"></span>日経平均データ取得中...
+    </div>
+    <div id="q1-result" class="hidden"></div>
+    <div id="q1-manual" class="hidden">
+      <div id="q1-manual-msg" style="font-size:12px;color:var(--dim);margin-bottom:8px"></div>
+      <div class="q1-manual-grid">
+        <div class="q1m" id="qm-go"  onclick="setQ1Manual('go')">🟢 強気</div>
+        <div class="q1m" id="qm-cau" onclick="setQ1Manual('caution')">🟡 中立</div>
+        <div class="q1m" id="qm-stp" onclick="setQ1Manual('stop')">🔴 弱気</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 財務フィルター結果 -->
+  <div class="card">
+    <div class="card-title">📊 財務フィルター結果</div>
+    <div id="filter-stats"></div>
+    <div id="filter-failed"></div>
+  </div>
+
+  <!-- 通過銘柄チェック -->
+  <div id="stocks-wrap"></div>
+
+  <!-- 最終サマリー -->
+  <div class="card hidden" id="final-card">
+    <div class="card-title">🎯 最終サマリー</div>
+    <div id="final-body"></div>
+  </div>
+
+  <div class="footer">何もしないことは、立派な利益確定です。</div>
+</div>
+
+<script>
+/* ======================================================
+   設定値
+====================================================== */
+const C = {
+  REV: 20, PRO: 20, EQ: 50,
+  MKTMIN: 10000, MKTMAX: 150000,
+  CHGMAX: 5
+};
+
+/* ======================================================
+   状態
+====================================================== */
+let q1Status   = null;
+let passed     = [];
+let failed     = [];
+let answers    = {};   // { code: { q4:{val,pass,pts}, ... } }
+let scores     = {};   // { code: {score,grade,pass} | null }
+
+/* ======================================================
+   CSV パーサー
+====================================================== */
+function splitCSVLine(line) {
+  const r = []; let cur = '', inQ = false;
+  for (const c of line) {
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { r.push(cur.trim()); cur = ''; }
+    else cur += c;
+  }
+  r.push(cur.trim());
+  return r;
+}
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const hdrs = splitCSVLine(lines[0]);
+  return lines.slice(1).map(l => {
+    const vals = splitCSVLine(l);
+    const row = {};
+    hdrs.forEach((h, i) => { row[h.trim()] = (vals[i] || '').trim(); });
+    return row;
+  }).filter(r => Object.values(r).some(v => v));
+}
+
+function pNum(s) {
+  if (s == null || s === '') return null;
+  const n = parseFloat(String(s).replace(/,/g,'').replace(/\s/g,'').replace(/\+/g,'').replace(/%/g,''));
+  return isNaN(n) ? null : n;
+}
+
+function pChange(s) {
+  const m = String(s).match(/\(([+-]?\d+\.?\d*)%\)/);
+  if (m) return parseFloat(m[1]);
+  return pNum(s) || 0;
+}
+
+function findHdr(hdrs, kw) {
+  return hdrs.find(h => h.includes(kw)) || null;
+}
+
+/* ======================================================
+   ファイル読み込み
+====================================================== */
+document.getElementById('csv-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.readAsArrayBuffer(file);
+  reader.onload = ev => {
+    const buf = ev.target.result;
+    let text;
+    try {
+      const s = new TextDecoder('shift-jis').decode(buf);
+      text = (s.match(/�/g) || []).length < 5 ? s : new TextDecoder('utf-8').decode(buf);
+    } catch { text = new TextDecoder('utf-8').decode(buf); }
+    processCSV(text, file.name);
+  };
+});
+
+/* ======================================================
+   CSV 処理・フィルタリング
+====================================================== */
+function processCSV(text, fname) {
+  const rows = parseCSV(text);
+  if (!rows.length) { alert('CSVを読み込めませんでした。'); return; }
+
+  const hdrs = Object.keys(rows[0]);
+  const COL = {
+    code:   findHdr(hdrs, 'コード'),
+    name:   findHdr(hdrs, '銘柄名'),
+    change: findHdr(hdrs, '前日比'),
+    rev:    findHdr(hdrs, '売上高変化率'),
+    pro:    findHdr(hdrs, '経常利益変化率'),
+    eq:     findHdr(hdrs, '自己資本比率'),
+    mkt:    findHdr(hdrs, '時価総額'),
+    price:  findHdr(hdrs, '現在値'),
+  };
+
+  if (!COL.code || !COL.rev) {
+    alert('列名を認識できませんでした。楽天証券スーパースクリーナーのCSVか確認してください。');
+    return;
+  }
+
+  passed = []; failed = []; answers = {}; scores = {};
+
+  rows.forEach(row => {
+    const code  = (row[COL.code]  || '').replace(/\s/g, '');
+    const name  = (row[COL.name]  || '').replace(/　/g, ' ').trim();
+    const rev   = pNum(row[COL.rev]);
+    const pro   = pNum(row[COL.pro]);
+    const eq    = pNum(row[COL.eq]);
+    const mkt   = pNum(row[COL.mkt]);
+    const chg   = pChange(row[COL.change]);
+    const price = pNum(row[COL.price]);
+    if (!code || !name) return;
+
+    const s = { code, name, rev, pro, eq, mkt, chg, price };
+    const reasons = [];
+    if (rev  === null || rev  < C.REV)                        reasons.push(`売上高${rev??'?'}%`);
+    if (pro  === null || pro  < C.PRO)                        reasons.push(`利益${pro??'?'}%`);
+    if (eq   === null || eq   < C.EQ)                         reasons.push(`自己資本${eq??'?'}%`);
+    if (mkt  === null || mkt  < C.MKTMIN || mkt > C.MKTMAX)  reasons.push(`時価総額範囲外`);
+    if (Math.abs(chg) > C.CHGMAX)                             reasons.push(`当日${chg>0?'+':''}${chg}%`);
+
+    if (reasons.length) { failed.push({...s, reasons}); }
+    else                { passed.push(s); answers[code] = {}; scores[code] = null; }
+  });
+
+  // ファイル名更新
+  document.querySelector('#upload-card .card-title').textContent = '📁 ' + fname;
+  document.getElementById('main').style.display = 'block';
+  renderFilterSummary();
+  fetchQ1();
+}
+
+/* ======================================================
+   フィルター結果表示
+====================================================== */
+function renderFilterSummary() {
+  const total = passed.length + failed.length;
+
+  let html = `<div class="ig">
+    <div class="ii"><div class="il">総銘柄数</div><div class="iv">${total}銘柄</div></div>
+    <div class="ii"><div class="il">チャート審査へ</div><div class="iv g">${passed.length}銘柄</div></div>
+  </div>`;
+
+  if (!passed.length) html += `<div class="notice">📭 本日の候補銘柄はありません。<br>何もしないことは、立派な利益確定です。</div>`;
+  document.getElementById('filter-stats').innerHTML = html;
+
+  if (failed.length) {
+    let fhtml = `<div class="card-title" style="font-size:12px;color:var(--dim);margin-bottom:6px">❌ 財務フィルター見送り</div>`;
+    failed.forEach(s => {
+      fhtml += `<div class="fitem">
+        <div><span class="fcode">${s.code}</span> <span style="color:var(--dim);font-size:11px">${s.name.substring(0,10)}</span></div>
+        <div class="freason">${s.reasons.join(' / ')}</div>
+      </div>`;
+    });
+    document.getElementById('filter-failed').innerHTML = fhtml;
+  }
+}
+
+/* ======================================================
+   Q1 自動取得
+====================================================== */
+async function fetchQ1() {
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EN225?interval=1d&range=3mo';
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const closes = data.chart.result[0].indicators.quote[0].close.filter(v => v != null);
+    if (closes.length < 30) throw new Error('データ不足');
+
+    const ma25     = closes.slice(-25).reduce((a,b)=>a+b) / 25;
+    const ma25prev = closes.slice(-35,-10).reduce((a,b)=>a+b) / 25;
+    const latest   = closes[closes.length - 1];
+    const above    = latest > ma25;
+    const rising   = ma25 > ma25prev;
+
+    let status, label;
+    if      (above && rising) { status='go';      label='🟢 強気 — 25日線の上・上向き'; }
+    else if (above)           { status='caution'; label='🟡 中立 — 25日線の上・横ばい'; }
+    else                      { status='stop';    label='🔴 弱気 — 25日線の下'; }
+
+    const sub = `日経: ${latest.toFixed(0)}円 / MA25: ${ma25.toFixed(0)}円`;
+    showQ1Auto(status, label, sub);
+  } catch(e) {
+    showQ1Manual(`自動取得失敗 → 楽天証券で確認して選択 (${e.message})`);
+  }
+}
+
+function showQ1Auto(status, label, sub) {
+  document.getElementById('q1-loading').classList.add('hidden');
+  const cls = { go:'q1-go', caution:'q1-caution', stop:'q1-stop' }[status] || 'q1-unk';
+  document.getElementById('q1-result').innerHTML = `
+    <div class="q1b ${cls}">
+      <div>${label}</div>
+      <div class="sub">${sub}</div>
+      <div class="chg" onclick="showQ1Manual('手動で変更')">▼ 手動で変更する</div>
+    </div>`;
+  document.getElementById('q1-result').classList.remove('hidden');
+  applyQ1(status);
+}
+
+function showQ1Manual(msg) {
+  document.getElementById('q1-loading').classList.add('hidden');
+  document.getElementById('q1-result').classList.add('hidden');
+  document.getElementById('q1-manual-msg').textContent = msg;
+  document.getElementById('q1-manual').classList.remove('hidden');
+}
+
+function setQ1Manual(status) {
+  ['go','cau','stp'].forEach(k => document.getElementById('qm-'+k).className = 'q1m');
+  const map = { go:'sel-go', caution:'sel-cau', stop:'sel-stp' };
+  const idmap = { go:'go', caution:'cau', stop:'stp' };
+  document.getElementById('qm-'+idmap[status]).classList.add(map[status]);
+  const labels = { go:'🟢 強気（選択済み）', caution:'🟡 中立（選択済み）', stop:'🔴 弱気（選択済み）' };
+  const cls    = { go:'q1-go', caution:'q1-caution', stop:'q1-stop' };
+  document.getElementById('q1-result').innerHTML = `
+    <div class="q1b ${cls[status]}"><div>${labels[status]}</div>
+    <div class="chg" onclick="showQ1Manual('手動で変更')">▼ 変更する</div></div>`;
+  document.getElementById('q1-result').classList.remove('hidden');
+  applyQ1(status);
+}
+
+function applyQ1(status) {
+  q1Status = status;
+  if (status === 'stop') {
+    document.getElementById('stocks-wrap').innerHTML =
+      `<div class="card"><div class="notice stop" style="margin:0">🔴 弱気地合いのため、本日は全面【見送り】です。<br><br>何もしないことは、立派な利益確定です。</div></div>`;
+  } else {
+    renderStocks();
+  }
+}
+
+/* ======================================================
+   銘柄カード生成
+====================================================== */
+function renderStocks() {
+  const wrap = document.getElementById('stocks-wrap');
+  if (!passed.length) { wrap.innerHTML = ''; return; }
+
+  let html = `<div class="card" style="margin-bottom:6px">
+    <div class="card-title">✅ チャート審査（Q4–Q13）</div>
+    <p style="font-size:12px;color:var(--dim)">各銘柄をタップして、楽天証券チャートを確認しながら答えてください。</p>
+  </div>`;
+
+  passed.forEach(s => { html += buildCard(s); });
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('.shdr').forEach(el => {
+    el.addEventListener('click', () => {
+      const body = el.nextElementSibling;
+      body.classList.toggle('open');
+      el.querySelector('.chev').textContent = body.classList.contains('open') ? '▲' : '▼';
+    });
+  });
+}
+
+function buildCard(s) {
+  const rakuten = `https://www.rakuten-sec.co.jp/web/market/search/stock_detail/?ric=${s.code}.T`;
+  const news    = `https://finance.yahoo.co.jp/quote/${s.code}.T/news`;
+
+  return `
+<div class="scard">
+  <div class="shdr">
+    <div>
+      <div class="scode">${s.code} <span style="font-size:12px;color:var(--dim);font-weight:400">— ${s.name.substring(0,12)}</span></div>
+      <div class="sname" id="vlabel-${s.code}">⬜ チェック未完了</div>
+    </div>
+    <div class="chev" style="font-size:13px;color:var(--dim)">▼</div>
+  </div>
+  <div class="sbody" id="body-${s.code}">
+
+    <div class="ig">
+      <div class="ii"><div class="il">売上高成長</div><div class="iv g">${s.rev!=null?'+'+s.rev+'%':'?'}</div></div>
+      <div class="ii"><div class="il">利益成長</div><div class="iv g">${s.pro!=null?'+'+s.pro+'%':'?'}</div></div>
+      <div class="ii"><div class="il">自己資本比率</div><div class="iv">${s.eq!=null?s.eq+'%':'?'}</div></div>
+      <div class="ii"><div class="il">現在値</div><div class="iv">${s.price!=null?s.price.toLocaleString()+'円':'?'}</div></div>
+    </div>
+
+    <a class="lbtn" href="${rakuten}" target="_blank">📊 楽天証券でチャートを確認 →</a>
+
+    ${Q('q4', s.code, 'Q4 移動平均配列', '株価 > MA50 > MA150 > MA200 の順を確認', [
+      {v:'ps', label:'① パーフェクトオーダー（間隔広い）',  pass:true,  pts:25},
+      {v:'pm', label:'① パーフェクトオーダー（間隔狭い）',  pass:true,  pts:15},
+      {v:'fp', label:'② 一部逆転あり',                       pass:false, pts:0},
+      {v:'fm', label:'③ バラバラ',                            pass:false, pts:0},
+    ])}
+
+    ${Q('q5', s.code, 'Q5 200日線の方向', '200日移動平均線の傾きを確認', [
+      {v:'ps', label:'① 明確に上向き',    pass:true,  pts:15},
+      {v:'pm', label:'① やや上向き',      pass:true,  pts:8},
+      {v:'f',  label:'③ 横ばい・下向き', pass:false, pts:0},
+    ])}
+
+    ${Q('q6', s.code, 'Q6 出来高の質', '直近20日の出来高バー（上昇日と下落日を比較）', [
+      {v:'ps', label:'① 上昇日に出来高増加（明確）', pass:true,  pts:20},
+      {v:'pm', label:'① 上昇日に出来高増加（やや）', pass:true,  pts:13},
+      {v:'pf', label:'③ 出来高横ばい',               pass:true,  pts:8},
+      {v:'f',  label:'② 下落日に出来高増加',          pass:false, pts:0},
+    ])}
+
+    ${Q('q7', s.code, 'Q7 25日線からの距離', 'MA25線から何%離れているか視覚的に確認', [
+      {v:'p1', label:'① ほぼMA25線上（±2%以内）',  pass:true,  pts:25},
+      {v:'p2', label:'② 2〜5%上',                  pass:true,  pts:20},
+      {v:'p3', label:'③ 5〜8%上',                  pass:true,  pts:13},
+      {v:'p4', label:'④ 8〜15%上',                 pass:true,  pts:7},
+      {v:'f',  label:'⑤ 15%超（過熱・見送り）',    pass:false, pts:0},
+    ])}
+
+    <div class="qsec">
+      <div class="qtitle">Q8 ニュース確認</div>
+      <div class="qhint">危険KW: 不祥事/粉飾/増資/下方修正/大量退任</div>
+      <a class="lbtn" href="${news}" target="_blank" style="margin-bottom:8px">📰 ニュースを確認する →</a>
+      ${Q('q8', s.code, 'Q8 ニュース判定', '', [
+        {v:'ok',  label:'✅ 危険KWなし',                      pass:true,  pts:0},
+        {v:'dan', label:'⚠ 不祥事・増資・下方修正など検出',   pass:false, pts:0},
+        {v:'unk', label:'❓ 確認できず（手動確認）',           pass:true,  pts:0},
+      ], true)}
+    </div>
+
+    ${Q('q9', s.code, 'Q9 決算日まで何営業日？', '楽天証券「適時開示」タブで確認', [
+      {v:'safe', label:'① 4営業日以上先',        pass:true,  pts:0},
+      {v:'dan',  label:'② 3営業日以内・当日',    pass:false, pts:0},
+      {v:'unk',  label:'❓ 不明（手動確認）',     pass:true,  pts:0},
+    ])}
+
+    ${Q('q10', s.code, 'Q10 本日寄り付きのギャップ', '昨日終値と本日始値の差', [
+      {v:'p1', label:'① ±0.5%以内（ほぼ変わらず）', pass:true,  pts:15},
+      {v:'p2', label:'② ±1〜3%（通常範囲）',         pass:true,  pts:8},
+      {v:'p3', label:'③ ±3〜5%',                     pass:true,  pts:3},
+      {v:'f',  label:'④ ±5%超（飛び乗りリスク）',    pass:false, pts:0},
+    ])}
+
+    <div class="qsec">
+      <div class="qtitle">Q11 直近3ヶ月高値（記録のみ・スコアには影響しない）</div>
+      <input class="tinput" id="q11-${s.code}" placeholder="例: 3,500円"
+        oninput="answers['${s.code}']['q11']={val:this.value,pass:true,pts:0}; updateScore('${s.code}')">
+    </div>
+
+    ${Q('q12', s.code, 'Q12 現在の保有銘柄数', '同時保有は最大2銘柄まで', [
+      {v:'0', label:'① なし（0銘柄）',              pass:true,  pts:0},
+      {v:'1', label:'② 1銘柄保有中',                pass:true,  pts:0},
+      {v:'2', label:'③ 2銘柄以上 → 上限超過',      pass:false, pts:0},
+    ])}
+
+    ${Q('q13', s.code, 'Q13 直近5回のトレード成績', '3連敗以上なら1週間トレード強制停止', [
+      {v:'gd', label:'① 4勝1敗 / 全勝',                  pass:true,  pts:0},
+      {v:'nm', label:'② 2〜3勝',                         pass:true,  pts:0},
+      {v:'bd', label:'③ 1勝4敗',                         pass:true,  pts:0},
+      {v:'st', label:'④ 3連敗以上 → トレード停止',       pass:false, pts:0},
+      {v:'na', label:'⑤ まだトレード実績なし',            pass:true,  pts:0},
+    ])}
+
+    <!-- スコアバー -->
+    <div class="sbar">
+      <div style="font-size:12px;color:var(--dim);margin-bottom:6px">チャートスコア（Q4–Q10）</div>
+      <div class="sval" id="sval-${s.code}" style="color:var(--dim)">--</div>
+      <div class="prog"><div class="progf" id="prog-${s.code}"></div></div>
+      <div class="sgrade" id="sgrd-${s.code}" style="color:var(--dim)">回答中...</div>
+      <div class="sbdown">
+        ${['q4','q5','q6','q7','q10'].map(q=>`
+          <div class="sbi"><div class="sbi-l">${q.toUpperCase()}</div><div class="sbi-v" id="sb-${q}-${s.code}">-</div></div>
+        `).join('')}
+      </div>
+      <div class="vbadge vpend" id="vbadge-${s.code}">全項目に回答してください</div>
+    </div>
+
+  </div>
+</div>`;
+}
+
+/* 質問ブロックHTML生成 */
+function Q(qname, code, title, hint, opts, noWrap=false) {
+  const optHtml = opts.map(o => `
+    <div class="qopt" id="opt-${code}-${qname}-${o.v}"
+      onclick="sel('${code}','${qname}','${o.v}',${o.pass},${o.pts})">
+      <div class="qrad"></div>
+      <div>${o.label}${o.pts>0?` <span class="pts">(+${o.pts}pt)</span>`:''}</div>
+    </div>`).join('');
+
+  const inner = `
+    <div class="qtitle">${title}</div>
+    ${hint ? `<div class="qhint">${hint}</div>` : ''}
+    <div class="qopts">${optHtml}</div>`;
+
+  return noWrap ? inner : `<div class="qsec">${inner}</div>`;
+}
+
+/* ======================================================
+   回答選択 & スコア計算
+====================================================== */
+function sel(code, qname, val, isPass, pts) {
+  if (!answers[code]) answers[code] = {};
+  answers[code][qname] = { val, pass: isPass, pts };
+
+  // ハイライト
+  document.querySelectorAll(`[id^="opt-${code}-${qname}-"]`).forEach(el => {
+    el.classList.remove('sp','sf');
+  });
+  const el = document.getElementById(`opt-${code}-${qname}-${val}`);
+  if (el) el.classList.add(isPass ? 'sp' : 'sf');
+
+  updateScore(code);
+}
+
+function updateScore(code) {
+  const ans = answers[code] || {};
+  const CHART_QS = ['q4','q5','q6','q7','q10'];
+  const ALL_QS   = ['q4','q5','q6','q7','q8','q9','q10','q12','q13'];
+
+  // チャートスコア
+  const smap = {}; let allChart = true; let anyFail = false;
+  CHART_QS.forEach(q => {
+    if (!ans[q]) { allChart = false; return; }
+    if (!ans[q].pass) anyFail = true;
+    smap[q] = ans[q].pts || 0;
+  });
+  // 非スコア失敗チェック
+  ['q8','q9','q12','q13'].forEach(q => {
+    if (ans[q] && !ans[q].pass) anyFail = true;
+  });
+
+  const total = Object.values(smap).reduce((a,b)=>a+b, 0);
+
+  // 内訳更新
+  CHART_QS.forEach(q => {
+    const el = document.getElementById(`sb-${q}-${code}`);
+    if (!el) return;
+    if (ans[q]) {
+      el.textContent = ans[q].pass ? '+'+smap[q] : '✗';
+      el.style.color = ans[q].pass ? 'var(--green)' : 'var(--red)';
+    }
+  });
+
+  if (!allChart) return;
+
+  let grade, color;
+  if      (total >= 80) { grade='S'; color='#ffd700'; }
+  else if (total >= 65) { grade='A'; color='#b0b0b0'; }
+  else if (total >= 50) { grade='B'; color='#cd7f32'; }
+  else                  { grade='C'; color='#6c757d'; }
+
+  const displayColor = anyFail ? 'var(--red)' : color;
+  document.getElementById(`sval-${code}`).textContent = total + '点';
+  document.getElementById(`sval-${code}`).style.color = displayColor;
+  document.getElementById(`prog-${code}`).style.width = total + '%';
+  document.getElementById(`prog-${code}`).style.background = displayColor;
+  document.getElementById(`sgrd-${code}`).textContent = anyFail ? '条件NGあり → 見送り' : `${grade}ランク`;
+  document.getElementById(`sgrd-${code}`).style.color = displayColor;
+
+  // 全Q11含めて確認（q11は任意扱い）
+  const allAnswered = ALL_QS.every(q => ans[q]);
+  if (!allAnswered) return;
+
+  const badge  = document.getElementById(`vbadge-${code}`);
+  const vlabel = document.getElementById(`vlabel-${code}`);
+
+  if (anyFail) {
+    badge.className = 'vbadge vfail';
+    badge.textContent = '🔴 見送り';
+    vlabel.textContent = '🔴 見送り'; vlabel.style.color = 'var(--red)';
+    scores[code] = { score:total, grade, pass:false };
+  } else if (total >= 65) {
+    const emo = total >= 80 ? '🟢 強い買い候補' : '🟡 条件付き買い';
+    badge.className = 'vbadge vpass';
+    badge.textContent = `${emo}  ${total}点 [${grade}ランク]`;
+    vlabel.textContent = `${emo}  ${total}点`;
+    vlabel.style.color = total >= 80 ? 'var(--green)' : 'var(--yellow)';
+    scores[code] = { score:total, grade, pass:true };
+  } else {
+    badge.className = 'vbadge vfail';
+    badge.textContent = `🔴 見送り（スコア不足 ${total}点）`;
+    vlabel.textContent = '🔴 見送り'; vlabel.style.color = 'var(--red)';
+    scores[code] = { score:total, grade, pass:false };
+  }
+  updateFinal();
+}
+
+/* ======================================================
+   最終サマリー
+====================================================== */
+function updateFinal() {
+  const done = Object.entries(scores).filter(([,v]) => v !== null);
+  if (!done.length) return;
+
+  const passItems = done.filter(([,v]) =>  v.pass);
+  const failItems = done.filter(([,v]) => !v.pass);
+
+  document.getElementById('final-card').classList.remove('hidden');
+  let html = '';
+
+  if (passItems.length) {
+    html += '<div class="sumcard"><div class="sumtitle">✅ 名探偵モード審査 通過銘柄</div>';
+    passItems.forEach(([code, v]) => {
+      const s = passed.find(x => x.code === code);
+      html += `<div class="sumrow">
+        <span><b>${code}</b> ${s ? s.name.substring(0,10) : ''}</span>
+        <span style="color:var(--accent)">${v.score}点 [${v.grade}]</span>
+      </div>`;
+    });
+    html += '</div>';
+    html += `<div class="notice">⚠ Q8目視・Q12保有数・Q13連敗を最終確認後、トリガー価格を設定してから執行してください。</div>`;
+  }
+
+  if (failItems.length && passItems.length) {
+    html += `<div style="font-size:12px;color:var(--dim);margin-top:8px">見送り: ${failItems.map(([c])=>c).join(', ')}</div>`;
+  }
+
+  if (!passItems.length) {
+    html += `<div class="notice" style="margin:0">本日の通過銘柄はありません。<br>何もしないことは、立派な利益確定です。</div>`;
+  }
+
+  document.getElementById('final-body').innerHTML = html;
+}
+</script>
+</body>
+</html>
+```
