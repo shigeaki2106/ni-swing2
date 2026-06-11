@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 UNIVERSE_CSV = os.path.join(HERE, "universe.csv")
 
-CAPITAL = 500000   # 運用資金
+CAPITAL = 1000000  # 運用資金 (2026-06-12 50万→100万に変更)
 RISK_PCT = 2.0     # 1トレードの許容損失(%)
 
 WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"]
