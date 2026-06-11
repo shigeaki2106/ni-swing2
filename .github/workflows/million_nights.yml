@@ -4,18 +4,20 @@ name: MILLION NIGHTS
 #  JST = UTC+9 | PCが完全に切れていても届く通知系
 #    朝  6:00 JST = 前日 21:00 UTC → 起床通知(地合い)
 #    朝  7:00 JST = 前日 22:00 UTC → 一括審査の作戦カード
-#    夜 21:30 JST = 当日 12:30 UTC → 日誌リマインド
+#    昼 11:50 JST = 当日 02:50 UTC → トリガー監視タイム(昼休み用)
+#    夜 17:15 JST = 当日 08:15 UTC → 終値チェック&日誌タイム
 #  ユニバース(universe.csv)はPC起動時に自動更新される
 # ────────────────────────────────────────────────
 on:
   schedule:
-    - cron: '0 21 * * 0-4'    # 平日 朝 6:00 JST
-    - cron: '0 22 * * 0-4'    # 平日 朝 7:00 JST
-    - cron: '30 12 * * 1-5'   # 平日 夜 21:30 JST
+    - cron: '0 21 * * 0-4'    # 平日 朝  6:00 JST
+    - cron: '0 22 * * 0-4'    # 平日 朝  7:00 JST
+    - cron: '50 2 * * 1-5'    # 平日 昼 11:50 JST
+    - cron: '15 8 * * 1-5'    # 平日 夜 17:15 JST
   workflow_dispatch:           # 手動実行(テスト用)
     inputs:
       mode:
-        description: 'wake / card / evening'
+        description: 'wake / card / noon / evening'
         required: false
         default: 'card'
 
