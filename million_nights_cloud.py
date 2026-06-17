@@ -19,14 +19,29 @@ import json
 import math
 import re
 import time
+import base64
 import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 UNIVERSE_CSV = os.path.join(HERE, "universe.csv")
+STOCK_JS = os.path.join(HERE, "stock_data.js")
+NIKKEI_JS = os.path.join(HERE, "nikkei_data.js")
+
+# Apps Scriptフィード(スイングCSV自動配信)。スマホ保存のxlsxもCSVに変換して返す。
+# これでPCが完全オフでも、Googleドライブの最新CSVをクラウドから取得できる。
+SCREEN_FEED_URL = os.environ.get(
+    "SCREEN_FEED_URL",
+    "https://script.google.com/macros/s/AKfycbzJGFJShcLU-T9fWL0Ki4r1MAMsqaowSinSAKaxN4MbxqJPqit1vI93grTim7lVHOOU3Q/exec")
+SCREEN_FEED_KEY = os.environ.get("SCREEN_FEED_KEY", "mn-swing-2026")
 
 CAPITAL = 1000000  # 運用資金 (2026-06-12 50万→100万に変更)
 RISK_PCT = 2.0     # 1トレードの許容損失(%)
+# トリガー(抵抗線ブレイク)の参照高値の期間(営業日)。
+# 旧=63(3ヶ月)はスイング1〜2週間の時間軸に対して長すぎ、トリガーがほぼ発動しなかった。
+# 2026-06-15に20(約4週間)へ短縮。stockdata_fetch.py / HTMLと同期させること。
+BREAKOUT_DAYS = 20
 
 WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"]
 
@@ -113,7 +128,7 @@ def analyze(code):
     return {
         "price": price, "ma25": ma25, "ma50": ma50, "ma150": ma150, "ma200": ma200,
         "ma200_growth": (ma200 - ma200_30) / ma200_30 * 100 if ma200_30 else 0,
-        "hi52": max(highs[-252:]), "lo52": min(lows[-252:]), "hi3m": max(highs[-63:]),
+        "hi52": max(highs[-252:]), "lo52": min(lows[-252:]), "pivot": max(highs[-BREAKOUT_DAYS:]),
         "gap": (opens[-1] - closes[-2]) / closes[-2] * 100,
         "vol_ratio": vol_ratio,
         "ma5_dir": "up" if d5 > 0.05 else ("down" if d5 < -0.05 else "flat"),
@@ -214,7 +229,7 @@ def auto_judge(s):
 
 
 def trade_plan(s):
-    trigger = math.ceil(s["hi3m"] * 1.005)
+    trigger = math.ceil(s["pivot"] * 1.005)
     stop = math.floor(trigger * 0.95)
     risk_ps = trigger - stop
     shares = int(CAPITAL * RISK_PCT / 100 // risk_ps) if risk_ps > 0 else 0
@@ -314,13 +329,100 @@ def mode_evening():
     )
 
 
+# ------------------------------------------------------------
+# クラウドでのデータ生成 (PCを完全に不要にする)
+#   ① Apps Scriptフィードから最新CSVを取得 → universe.csv
+#   ② 全銘柄のチャート指標を計算 → stock_data.js
+#   ③ 地合い → nikkei_data.js
+# 生成物はGitHub Actionsがリポジトリにpushし、ツールは raw.githubusercontent から読む。
+# ------------------------------------------------------------
+def fetch_screener_csv():
+    """Apps Scriptフィードから最新の楽天CSV(スマホ保存のxlsxもCSV変換済み)を取得し、
+    universe.csv として保存する。形式: ファイル名|最終更新ms|base64本体"""
+    url = SCREEN_FEED_URL + "?key=" + urllib.parse.quote(SCREEN_FEED_KEY) + "&t=" + str(int(time.time()))
+    req = urllib.request.Request(url, headers={"User-Agent": "MillionNights/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as res:
+        txt = res.read().decode("utf-8").strip()
+    if not txt or txt == "NG" or "|" not in txt:
+        raise ValueError(f"フィード取得失敗: {txt[:40]}")
+    name, _mtime, b64 = txt.split("|", 2)
+    data = base64.b64decode(b64)
+    with open(UNIVERSE_CSV, "wb") as f:
+        f.write(data)
+    print(f"ユニバース更新: {name} ({len(data)}バイト)")
+    return name
+
+
+def fetch_nikkei_q1():
+    """nikkei_data.js 用の地合いデータ(ローカル millionnights_notify.py と同一形式)"""
+    data = _yahoo("%5EN225", "3mo")
+    closes = [c for c in data["indicators"]["quote"][0]["close"] if c is not None]
+    if len(closes) < 35:
+        raise ValueError("日経データ不足")
+    close = closes[-1]
+    ma25_now = sum(closes[-25:]) / 25
+    ma25_old = sum(closes[-35:-10]) / 25
+    if close > ma25_now and ma25_now > ma25_old:
+        verdict, label, icon = "bull", "強気", "🟢"
+    elif close > ma25_now:
+        verdict, label, icon = "mid", "中立", "🟡"
+    else:
+        verdict, label, icon = "bear", "弱気", "🔴"
+    return {"date": jst_now().date().isoformat(), "close": round(close, 2),
+            "ma25": round(ma25_now, 2), "ma25_old": round(ma25_old, 2),
+            "rising": ma25_now > ma25_old, "verdict": verdict, "label": label, "icon": icon}
+
+
+def write_nikkei_js(q1):
+    with open(NIKKEI_JS, "w", encoding="utf-8") as f:
+        f.write("window.NIKKEI_Q1 = " + json.dumps(q1, ensure_ascii=False) + ";\n")
+
+
+def mode_chartdata():
+    """PC不要のチャートデータ生成。最新CSVを取得し、全銘柄のチャート指標と地合いを
+    stock_data.js / nikkei_data.js に書き出す(Discordには通知しない)。"""
+    # ① 地合い
+    try:
+        write_nikkei_js(fetch_nikkei_q1())
+        print("nikkei_data.js を更新")
+    except Exception as e:
+        print(f"地合い取得失敗(スキップ): {e}")
+    # ② 最新ユニバース取得
+    try:
+        csv_name = fetch_screener_csv()
+    except Exception as e:
+        print(f"CSV取得失敗、既存universe.csvを使用: {e}")
+        csv_name = "universe.csv"
+    # ③ 全銘柄のチャート指標
+    rows = read_universe()
+    stocks, errors = {}, 0
+    for r in rows:
+        try:
+            s = analyze(r["code"])
+            # HTML側stock_data.jsと同じ丸め(vol_ratioのみ小数2桁、他は1桁)
+            out = {k: (round(v, 2) if k == "vol_ratio" else round(v, 1) if isinstance(v, float) else v)
+                   for k, v in s.items()}
+            out["name"] = r["name"]
+            stocks[r["code"]] = out
+            print(f"  [OK] {r['code']} {r['name']}")
+        except Exception as e:
+            errors += 1
+            print(f"  [NG] {r['code']} {e}")
+        time.sleep(0.35)
+    payload = {"date": jst_now().date().isoformat(), "csv": csv_name, "stocks": stocks}
+    with open(STOCK_JS, "w", encoding="utf-8") as f:
+        f.write("window.STOCK_DATA = " + json.dumps(payload, ensure_ascii=False) + ";\n")
+    print(f"stock_data.js を更新: {len(stocks)}/{len(rows)}銘柄 (失敗{errors})")
+
+
 def main():
     mode = os.environ.get("MN_MODE", "").strip()
     if not mode:
         h = datetime.now(timezone.utc).hour
         mode = "wake" if h == 21 else "card" if h == 22 else "noon" if h == 2 else "evening" if h == 8 else "card"
     print(f"=== MILLION NIGHTS cloud [{mode}] {jst_now().isoformat()} JST ===")
-    {"wake": mode_wake, "card": mode_card, "noon": mode_noon, "evening": mode_evening}[mode]()
+    {"wake": mode_wake, "card": mode_card, "noon": mode_noon,
+     "evening": mode_evening, "chartdata": mode_chartdata}[mode]()
     print("完了")
 
 

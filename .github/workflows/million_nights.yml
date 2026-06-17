@@ -1,28 +1,33 @@
 name: MILLION NIGHTS
 
 # ────────────────────────────────────────────────
-#  JST = UTC+9 | PCが完全に切れていても届く通知系
+#  JST = UTC+9 | PCが完全に切れていても動くクラウド処理
+#    朝  6:50 JST = 前日 21:50 UTC → チャートデータ生成(最新CSV取得→指標計算→push)
 #    朝  6:00 JST = 前日 21:00 UTC → 起床通知(地合い)
 #    朝  7:00 JST = 前日 22:00 UTC → 一括審査の作戦カード
 #    昼 11:50 JST = 当日 02:50 UTC → トリガー監視タイム(昼休み用)
 #    夜 17:15 JST = 当日 08:15 UTC → 終値チェック&日誌タイム
-#  ユニバース(universe.csv)はPC起動時に自動更新される
+#  ※ universe.csv も 6:50 のchartdataジョブが最新CSV(Apps Scriptフィード)から
+#    取得してpushするため、PCを起動しなくても作戦カードが最新になる。
 # ────────────────────────────────────────────────
 on:
   schedule:
-    - cron: '0 21 * * 0-4'    # 平日 朝  6:00 JST
-    - cron: '0 22 * * 0-4'    # 平日 朝  7:00 JST
-    - cron: '50 2 * * 1-5'    # 平日 昼 11:50 JST
-    - cron: '15 8 * * 1-5'    # 平日 夜 17:15 JST
+    - cron: '50 21 * * 0-4'   # 平日 朝  6:50 JST チャートデータ生成
+    - cron: '0 21 * * 0-4'    # 平日 朝  6:00 JST 起床通知(地合い)
+    - cron: '0 22 * * 0-4'    # 平日 朝  7:00 JST 作戦カード
+    - cron: '50 2 * * 1-5'    # 平日 昼 11:50 JST トリガー監視タイム
+    - cron: '15 8 * * 1-5'    # 平日 夜 17:15 JST 終値チェック&日誌タイム
   workflow_dispatch:           # 手動実行(テスト用)
     inputs:
       mode:
-        description: 'wake / card / noon / evening'
+        description: 'wake / card / noon / evening / chartdata'
         required: false
         default: 'card'
 
 jobs:
-  run:
+  # ── 通知系(Discord)。chartdataのcron/手動指定のときは動かさない ──
+  notify:
+    if: ${{ github.event.schedule != '50 21 * * 0-4' && github.event.inputs.mode != 'chartdata' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -40,3 +45,34 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           MN_MODE: ${{ github.event.inputs.mode }}
         run: python million_nights_cloud.py
+
+  # ── チャートデータ生成系。朝6:50 cron か 手動chartdata指定時のみ ──
+  #    最新CSVを取得→全銘柄の指標を計算→stock_data.js/nikkei_data.js/universe.csv をpush。
+  #    公開リポジトリなので、ツールは raw.githubusercontent から日次でこれを読み込む。
+  chartdata:
+    if: ${{ github.event.schedule == '50 21 * * 0-4' || github.event.inputs.mode == 'chartdata' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write          # 生成データを自分のリポジトリにpushするため
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate chart data (最新CSV取得 → 指標計算)
+        env:
+          MN_MODE: chartdata
+        run: python million_nights_cloud.py
+
+      - name: Commit & push data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f stock_data.js nikkei_data.js universe.csv
+          git diff --cached --quiet || git commit -m "chart data auto-update (MILLION NIGHTS)"
+          git push
