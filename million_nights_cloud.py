@@ -58,7 +58,8 @@ def send_discord(text):
     if not webhook:
         print("ERROR: DISCORD_WEBHOOK_URL が未設定")
         sys.exit(1)
-    payload = json.dumps({"content": text[:1990]}).encode("utf-8")
+    # username で通知ボットの表示名を「すいんぐ」に固定(旧「米すいんぐ」から変更)
+    payload = json.dumps({"content": text[:1990], "username": "すいんぐ"}).encode("utf-8")
     req = urllib.request.Request(
         webhook, data=payload,
         headers={"Content-Type": "application/json", "User-Agent": "MillionNights/1.0"},
@@ -95,6 +96,30 @@ def sma(vals, n, offset=0):
     if end - n < 0:
         return None
     return sum(vals[end - n:end]) / n
+
+
+# RS相対力 (オニール CAN SLIM の "L=主導株")。日経より強い銘柄を加点で優遇。
+# RS = (1+銘柄6ヶ月) / (1+日経6ヶ月)。1.0超で市場より強い。足切りはせず加点のみ。
+def six_month_return(closes):
+    if len(closes) < 126 or closes[-126] in (0, None):
+        return None
+    return (closes[-1] / closes[-126] - 1) * 100
+
+
+def rel_strength(stock_ret, nikkei_ret):
+    if stock_ret is None or nikkei_ret is None:
+        return None
+    denom = 1 + nikkei_ret / 100
+    if denom <= 0:
+        return None
+    return round((1 + stock_ret / 100) / denom, 3)
+
+
+def fetch_nikkei_ret6m():
+    """日経平均の6ヶ月騰落率(%)。RSの分母。失敗時 None"""
+    data = _yahoo("%5EN225", "1y")
+    closes = [c for c in data["indicators"]["quote"][0]["close"] if c is not None]
+    return six_month_return(closes)
 
 
 def analyze(code):
@@ -134,6 +159,7 @@ def analyze(code):
         "ma5_dir": "up" if d5 > 0.05 else ("down" if d5 < -0.05 else "flat"),
         "kahanshin": bool(c > o and (c + o) / 2 > ma5 and o <= ma5 * 1.005),
         "vcp": "yes" if (r10 <= r30 * 0.75 and v10 <= v30 * 0.95) else ("wild" if r10 >= r30 * 1.3 else "dunno"),
+        "ret6m": six_month_return(closes),  # 6ヶ月騰落率(RSの分子)。rsは呼び出し側で日経と比較して付与
     }
 
 
@@ -223,6 +249,12 @@ def auto_judge(s):
         if s["ma5_dir"] == "flat": warns.append("5日線横ばい")
         if s["kahanshin"] and s["ma5_dir"] == "up":
             score += 5; kah = True
+    # RS相対力ボーナス (オニール: 市場より強い主導株を加点。足切りはしない)
+    rs = s.get("rs")
+    if rs is not None:
+        if rs >= 1.15: score += 5
+        elif rs >= 1.0: score += 3
+        else: warns.append(f"RS {rs:.2f}倍 (市場より弱い)")
     score = min(100, score)
     grade = "S" if score >= 80 else "A" if score >= 65 else "B" if score >= 50 else "C"
     return fails, warns, score, grade, kah
@@ -262,6 +294,18 @@ def mode_card():
     uni_date = datetime.fromtimestamp(os.path.getmtime(UNIVERSE_CSV)).strftime("%m/%d") if os.path.exists(UNIVERSE_CSV) else "?"
     fin_passed = [r for r in rows if not step1_fails(r)]
     print(f"ユニバース{len(rows)}銘柄 / 財務通過{len(fin_passed)}")
+    try:
+        nikkei_ret6m = fetch_nikkei_ret6m()
+    except Exception:
+        nikkei_ret6m = None
+    # 地合い(旧6:00起床通知をこの7:00カードに統合)
+    try:
+        n = fetch_nikkei()
+        mood = f"{n['icon']} {n['label']}"
+        bear = (n["verdict"] == "bear")
+    except Exception:
+        mood = "取得失敗"
+        bear = False
     cands, rejected, errors = [], [], 0
     for r in fin_passed:
         try:
@@ -270,6 +314,7 @@ def mode_card():
             print(f"  [NG] {r['code']} {e}")
             errors += 1
             continue
+        s["rs"] = rel_strength(s.get("ret6m"), nikkei_ret6m)  # RS相対力(加点用)
         fails, warns, score, grade, kah = auto_judge(s)
         if fails:
             rejected.append((r, fails))
@@ -280,25 +325,24 @@ def mode_card():
         time.sleep(0.35)
     cands.sort(key=lambda x: -x[3])
 
-    lines = [f"🛰 **MILLION NIGHTS 本日の作戦カード** ({d.month}/{d.day} {WEEKDAYS[d.weekday()]}曜) ☁クラウド審査",
-             f"ユニバース({uni_date}時点) {len(rows)}銘柄 → 財務通過{len(fin_passed)} → 🏆候補 **{len(cands)}**"]
+    lines = [f"☀ **{d.month}/{d.day}({WEEKDAYS[d.weekday()]}) の作戦**",
+             f"地合い {mood} ・ 候補 {len(cands)}件 / {len(rows)}銘柄"]
+    if bear:
+        lines.append("⛔ **弱気 — 今日は全銘柄見送りでOK。二度寝推奨。**")
     if not cands:
-        lines.append("候補なし。**今日は静観でOK。** 「何もしないことは、立派な利益確定です。」")
+        lines.append("候補なし。**今日は静観でOK。**「何もしないことは、立派な利益確定です。」")
     medals = ["🥇", "🥈", "🥉"]
     for i, (r, s, warns, score, grade, kah) in enumerate(cands[:3]):
         trigger, stop, shares = trade_plan(s)
-        lines.append(f"{medals[i] if i < 3 else '・'} **{r['code']} {r['name']}**  {grade}級 {score}点"
-                     + (" 🦵下半身成立!" if kah else ""))
-        lines.append(f"　🎯トリガー {trigger:,}円 / 🛡損切り {stop:,}円 / 2%ルール {shares}株(かぶミニ)")
-        if warns:
-            lines.append(f"　⚠ {' / '.join(warns[:3])}")
+        tag = (" 🦵下半身" if kah else "") + (f" ⚠{warns[0]}" if warns else "")
+        lines.append(f"{medals[i]} **{r['code']} {r['name']}**  {grade}級 {score}点{tag}")
+        lines.append(f"　買 {trigger:,} → 損切 {stop:,} ・ {shares}株")
     if rejected:
-        rej = " / ".join(f"{r['code']}({f[0]})" for r, f in rejected[:5])
-        lines.append(f"⛔ 見送り {len(rejected)}件: {rej}" + (" ほか" if len(rejected) > 5 else ""))
+        lines.append(f"見送り {len(rejected)}件")
     if errors:
         lines.append(f"(取得失敗 {errors}件)")
     if cands:
-        lines.append("✅ 残す確認は **Q8ニュース・Q9決算日** — iSPEEDで各30秒 → OKなら注文+逆指値")
+        lines.append("残りはツールの **「最終審査」** でQ8/Q9を確認 → OKなら注文+逆指値")
     send_discord("\n".join(lines))
 
 
@@ -310,7 +354,7 @@ def mode_noon():
     except Exception:
         line = ""
     send_discord(
-        f"🍱 **MILLION NIGHTS — 昼のトリガー監視タイム** ({d.month}/{d.day} {WEEKDAYS[d.weekday()]}曜)\n"
+        f"🍱 **昼のトリガー監視** ({d.month}/{d.day}({WEEKDAYS[d.weekday()]}))\n"
         + (line + "\n" if line else "")
         + "1️⃣ iSPEEDで保有銘柄をチラ見 (損切りラインに接近していない?)\n"
         "2️⃣ 今朝の候補が🎯トリガー価格を超えていたら、出来高を確認してエントリー\n"
@@ -321,7 +365,7 @@ def mode_noon():
 def mode_evening():
     d = jst_now()
     send_discord(
-        f"🌆 **MILLION NIGHTS — 終値チェック&日誌タイム** ({d.month}/{d.day} {WEEKDAYS[d.weekday()]}曜)\n"
+        f"🌆 **終値チェック&日誌** ({d.month}/{d.day}({WEEKDAYS[d.weekday()]}))\n"
         "1️⃣ 保有銘柄の終値チェック (損切り・利確・タイムストップに該当?)\n"
         "2️⃣ 📓航海日誌を更新 (約定・気持ち・学び) — PCのMILLION NIGHTSで\n"
         "3️⃣ 明日のトリガー待ち銘柄の逆指値・アラートを確認\n"
@@ -395,12 +439,19 @@ def mode_chartdata():
         csv_name = "universe.csv"
     # ③ 全銘柄のチャート指標
     rows = read_universe()
+    try:
+        nikkei_ret6m = fetch_nikkei_ret6m()  # RSの分母(日経6ヶ月)
+    except Exception as e:
+        nikkei_ret6m = None
+        print(f"日経6ヶ月騰落率の取得失敗(RSスキップ): {e}")
     stocks, errors = {}, 0
     for r in rows:
         try:
             s = analyze(r["code"])
-            # HTML側stock_data.jsと同じ丸め(vol_ratioのみ小数2桁、他は1桁)
-            out = {k: (round(v, 2) if k == "vol_ratio" else round(v, 1) if isinstance(v, float) else v)
+            s["rs"] = rel_strength(s.get("ret6m"), nikkei_ret6m)  # RS相対力
+            # HTML側stock_data.jsと同じ丸め(rsは小数3桁・vol_ratioは2桁・他は1桁)
+            out = {k: (round(v, 3) if k == "rs" else round(v, 2) if k == "vol_ratio"
+                       else round(v, 1) if isinstance(v, float) else v)
                    for k, v in s.items()}
             out["name"] = r["name"]
             stocks[r["code"]] = out
@@ -409,7 +460,9 @@ def mode_chartdata():
             errors += 1
             print(f"  [NG] {r['code']} {e}")
         time.sleep(0.35)
-    payload = {"date": jst_now().date().isoformat(), "csv": csv_name, "stocks": stocks}
+    payload = {"date": jst_now().date().isoformat(), "csv": csv_name,
+               "nikkei_ret6m": round(nikkei_ret6m, 1) if nikkei_ret6m is not None else None,
+               "stocks": stocks}
     with open(STOCK_JS, "w", encoding="utf-8") as f:
         f.write("window.STOCK_DATA = " + json.dumps(payload, ensure_ascii=False) + ";\n")
     print(f"stock_data.js を更新: {len(stocks)}/{len(rows)}銘柄 (失敗{errors})")

@@ -11,13 +11,11 @@ name: Japan Stock Swing Notifications
 #  週末(土・日 JST):
 #    朝  8:00 JST = 前日      23:00 UTC  → cron 0 23 * * 5,6
 # ────────────────────────────────────────────────
+# 【停止中】通知は MILLION NIGHTS (million_nights.yml) に一本化したため、
+# この旧通知(notify_daily.py の詳細カード)の定期実行は停止しました。
+# 旧形式を一時的に出したいときだけ、GitHubのActionsタブから手動実行(workflow_dispatch)できます。
 on:
-  schedule:
-    - cron: '0 22 * * 0-4'   # 平日 朝  7:00 JST
-    - cron: '30 3 * * 1-5'   # 平日 昼 12:30 JST
-    - cron: '0 11 * * 1-5'   # 平日 夜 20:00 JST
-    - cron: '0 23 * * 5,6'   # 週末 朝  8:00 JST (土・日)
-  workflow_dispatch:          # 手動実行も可能(テスト用)
+  workflow_dispatch:          # 手動実行のみ(定期実行は停止)
 
 jobs:
   notify:
