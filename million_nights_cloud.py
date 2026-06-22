@@ -54,6 +54,12 @@ def jst_now():
 # Discord
 # ------------------------------------------------------------
 def send_discord(text):
+    # ドライラン: MN_DRYRUN=1 のときは送信せず内容を表示するだけ(ローカル検証用)
+    if os.environ.get("MN_DRYRUN", "").strip() in ("1", "true", "yes"):
+        print("----- DRYRUN (送信しません) -----")
+        print(text)
+        print("---------------------------------")
+        return
     webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
     if not webhook:
         print("ERROR: DISCORD_WEBHOOK_URL が未設定")
@@ -89,6 +95,21 @@ def fetch_nikkei():
     if close > ma25:
         return {"icon": "🟡", "label": "中立", "verdict": "mid", "close": close, "ma25": ma25, "rising": False}
     return {"icon": "🔴", "label": "弱気", "verdict": "bear", "close": close, "ma25": ma25, "rising": False}
+
+
+def fetch_us_regime():
+    """米国の地合い (S&P500 ^GSPC)。Webアプリ loadUSMarket と整合する簡易版。
+    25日線より上+25日線上向き=強気 / 上だが横ばい=中立 / 下=弱気。"""
+    data = _yahoo("%5EGSPC", "3mo")
+    closes = [c for c in data["indicators"]["quote"][0]["close"] if c is not None]
+    close = closes[-1]
+    ma25 = sum(closes[-25:]) / 25
+    ma25_old = sum(closes[-35:-10]) / 25
+    if close > ma25 and ma25 > ma25_old:
+        return {"icon": "🟢", "label": "強気", "verdict": "bull", "close": close, "ma25": ma25}
+    if close > ma25:
+        return {"icon": "🟡", "label": "中立", "verdict": "mid", "close": close, "ma25": ma25}
+    return {"icon": "🔴", "label": "弱気", "verdict": "bear", "close": close, "ma25": ma25}
 
 
 def sma(vals, n, offset=0):
@@ -373,6 +394,35 @@ def mode_evening():
     )
 
 
+def mode_usprep():
+    """夜20:00 JST 米国の仕掛け準備。S&P500の地合い + IFD+トレーリングの仕込み手順を配信。
+    米国市場は日本の夜(夏22:30〜翌5:00 / 冬23:30〜翌6:00)に開くので、寝る前に set-and-forget で仕込む。"""
+    d = jst_now()
+    try:
+        n = fetch_us_regime()
+        mood = f"{n['icon']} **{n['label']}** (S&P500 {n['close']:,.0f} / 25日線 {n['ma25']:,.0f})"
+        bear = (n["verdict"] == "bear")
+    except Exception:
+        mood = "取得失敗 — ツールのヘッダーで確認を"
+        bear = False
+    lines = [
+        f"🌃 **米国の仕掛け準備** ({d.month}/{d.day}({WEEKDAYS[d.weekday()]}))",
+        f"📊 今夜の地合い: {mood}",
+    ]
+    if bear:
+        lines.append("⛔ **弱気 — 今夜は新規見送り推奨。現金で待つのが正解。**")
+    lines += [
+        "米国市場は今夜 **22:30頃〜(夏時間)** に開きます。寝る前に仕込みましょう:",
+        "1️⃣ MILLION NIGHTS を🇺🇸モードで開く",
+        "2️⃣ スクリーニングで **🎯本命(S・A級)** を確認(全銘柄を一括審査)",
+        "3️⃣ 作戦計画で株数(USD/JPY換算)を確認",
+        "4️⃣ **IFD注文**で発注: 親=逆指値ブレイク買い / 子=トレーリングストップ",
+        "5️⃣ 仕掛けたら寝てOK 😴 上がれば損切りが自動で追従、反落で利確。",
+        "_本命を1〜2銘柄だけ。同時保有は2まで。B級は控え。焦らず「トリガー超え」だけが買う理由。_",
+    ]
+    send_discord("\n".join(lines))
+
+
 # ------------------------------------------------------------
 # クラウドでのデータ生成 (PCを完全に不要にする)
 #   ① Apps Scriptフィードから最新CSVを取得 → universe.csv
@@ -472,10 +522,11 @@ def main():
     mode = os.environ.get("MN_MODE", "").strip()
     if not mode:
         h = datetime.now(timezone.utc).hour
-        mode = "wake" if h == 21 else "card" if h == 22 else "noon" if h == 2 else "evening" if h == 8 else "card"
+        mode = ("wake" if h == 21 else "card" if h == 22 else "noon" if h == 2
+                else "evening" if h == 8 else "usprep" if h == 11 else "card")
     print(f"=== MILLION NIGHTS cloud [{mode}] {jst_now().isoformat()} JST ===")
     {"wake": mode_wake, "card": mode_card, "noon": mode_noon,
-     "evening": mode_evening, "chartdata": mode_chartdata}[mode]()
+     "evening": mode_evening, "usprep": mode_usprep, "chartdata": mode_chartdata}[mode]()
     print("完了")
 
 

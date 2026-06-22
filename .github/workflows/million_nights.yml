@@ -17,10 +17,11 @@ on:
     - cron: '0 22 * * 0-4'    # 平日 朝  7:00 JST 作戦カード(地合い+候補)
     - cron: '50 2 * * 1-5'    # 平日 昼 11:50 JST トリガー監視タイム
     - cron: '15 8 * * 1-5'    # 平日 夜 17:15 JST 終値チェック&日誌タイム
+    - cron: '0 11 * * 1-5'    # 平日 夜 20:00 JST 🇺🇸米国の仕掛け準備(S&P地合い+IFD手順)
   workflow_dispatch:           # 手動実行(テスト用)
     inputs:
       mode:
-        description: 'wake / card / noon / evening / chartdata'
+        description: 'wake / card / noon / evening / usprep / chartdata'
         required: false
         default: 'card'
 
