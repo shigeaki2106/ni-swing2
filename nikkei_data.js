@@ -1,1 +1,1 @@
-window.NIKKEI_Q1 = {"date": "2026-07-03", "close": 70474.96, "ma25": 68199.51, "ma25_old": 65001.82, "rising": true, "verdict": "bull", "label": "強気", "icon": "🟢"};
+window.NIKKEI_Q1 = {"date": "2026-07-06", "close": 69744.07, "ma25": 68497.69, "ma25_old": 65731.42, "rising": true, "verdict": "bull", "label": "強気", "icon": "🟢"};
