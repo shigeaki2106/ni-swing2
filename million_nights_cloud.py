@@ -83,33 +83,87 @@ def _yahoo(symbol, rng):
         return json.load(res)["chart"]["result"][0]
 
 
-def fetch_nikkei():
-    """日経平均の地合い (ローカル版 millionnights_notify.py と同基準)"""
-    data = _yahoo("%5EN225", "3mo")
-    closes = [c for c in data["indicators"]["quote"][0]["close"] if c is not None]
+def _regime(closes, with_breadth=False):
+    """終値系列から地合いを3層で判定する (ローカル版 millionnights_notify.py と同基準)。
+    A層=200日線(主軸) / B層=Breadth(日本のみ) / C層=25日線(短期の注意サイン)"""
     close = closes[-1]
-    ma25 = sum(closes[-25:]) / 25
-    ma25_old = sum(closes[-35:-10]) / 25
-    if close > ma25 and ma25 > ma25_old:
-        return {"icon": "🟢", "label": "強気", "verdict": "bull", "close": close, "ma25": ma25, "rising": True}
-    if close > ma25:
-        return {"icon": "🟡", "label": "中立", "verdict": "mid", "close": close, "ma25": ma25, "rising": False}
-    return {"icon": "🔴", "label": "弱気", "verdict": "bear", "close": close, "ma25": ma25, "rising": False}
+    ma25 = sma(closes, 25)
+    ma25_old = sma(closes, 25, 10)
+    ma200 = sma(closes, 200)
+    ma200_old = sma(closes, 200, 30)
+    short_warn = close < ma25
+    # A層: 200日線
+    if ma200 is None:
+        trend = "bull" if close > ma25 else "bear"
+        trend_up = ma25 > ma25_old if ma25_old else False
+        ma200 = ma200_old = None
+    else:
+        trend_up = ma200 > ma200_old if ma200_old else False
+        above200 = close > ma200
+        trend = "bull" if (above200 and trend_up) else ("mid" if (above200 or trend_up) else "bear")
+    # B層: Breadth (取れなければNone。A層+C層だけで判定する)
+    b = None
+    if with_breadth:
+        try:
+            import breadth
+            b = breadth.fetch_breadth()
+        except Exception:
+            b = None
+    # 総合: A層が主。A層が弱気ならBreadthでは覆さない
+    if trend == "bull":
+        verdict = "mid" if (b and b["verdict"] == "bear") else "bull"
+    elif trend == "mid":
+        verdict = "bear" if (b and b["verdict"] == "bear") else "mid"
+    else:
+        verdict = "bear"
+    label, icon = {"bull": ("強気", "🟢"), "mid": ("中立", "🟡"), "bear": ("弱気", "🔴")}[verdict]
+    if verdict == "bear":
+        stance = "新規は全面見送り。現金で待つのが正解。"
+    elif verdict == "mid":
+        stance = "試し玉(株数半分)まで。無理に買わない。"
+    elif short_warn:
+        stance = "長期は上昇継続だが短期は調整中 → 試し玉(株数半分)推奨。"
+    else:
+        stance = "通常サイズでOK。"
+    return {
+        "icon": icon, "label": label, "verdict": verdict, "close": close,
+        "ma25": ma25, "ma200": ma200, "trend": trend, "trend_up": trend_up,
+        "dev200": round((close / ma200 - 1) * 100, 1) if ma200 else None,
+        "short_warn": short_warn, "stance": stance,
+        "breadth": b["pct"] if b else None,
+        "breadth_label": b["label"] if b else None,
+        "rising": ma25 > ma25_old if ma25_old else False,
+    }
+
+
+def _closes(symbol, rng="2y"):
+    data = _yahoo(symbol, rng)
+    return [c for c in data["indicators"]["quote"][0]["close"] if c is not None]
+
+
+def fetch_nikkei():
+    """日経平均の地合い (200日線 + TOPIX500のBreadth + 25日線の3層)"""
+    return _regime(_closes("%5EN225"), with_breadth=True)
 
 
 def fetch_us_regime():
-    """米国の地合い (S&P500 ^GSPC)。Webアプリ loadUSMarket と整合する簡易版。
-    25日線より上+25日線上向き=強気 / 上だが横ばい=中立 / 下=弱気。"""
-    data = _yahoo("%5EGSPC", "3mo")
-    closes = [c for c in data["indicators"]["quote"][0]["close"] if c is not None]
-    close = closes[-1]
-    ma25 = sum(closes[-25:]) / 25
-    ma25_old = sum(closes[-35:-10]) / 25
-    if close > ma25 and ma25 > ma25_old:
-        return {"icon": "🟢", "label": "強気", "verdict": "bull", "close": close, "ma25": ma25}
-    if close > ma25:
-        return {"icon": "🟡", "label": "中立", "verdict": "mid", "close": close, "ma25": ma25}
-    return {"icon": "🔴", "label": "弱気", "verdict": "bear", "close": close, "ma25": ma25}
+    """米国の地合い (S&P500 ^GSPC)。Breadthは日本株のみなのでA層+C層で判定。"""
+    return _regime(_closes("%5EGSPC"), with_breadth=False)
+
+
+def regime_lines(n):
+    """地合いをDiscord用の複数行テキストに整形する"""
+    pos = "上" if (n.get("ma200") and n["close"] > n["ma200"]) else "下"
+    out = f"📊 今朝の地合い: {n['icon']} **{n['label']}**"
+    if n.get("ma200"):
+        out += (f"\n　├ 大局: 日経 {n['close']:,.0f}円 / 200日線 {n['ma200']:,.0f}円の{pos}"
+                f"({n['dev200']:+.1f}%・{'上向き' if n['trend_up'] else '横ばい・下向き'})")
+    if n.get("breadth") is not None:
+        out += f"\n　├ 中身: TOPIX500の**{n['breadth']:.0f}%**が200日線超え({n['breadth_label']})"
+    out += (f"\n　└ 短期: 25日線 {n['ma25']:,.0f}円 — "
+            + ("⚠️ **割れている(調整中)**" if n["short_warn"] else "上をキープ")
+            + f"\n👉 {n['stance']}")
+    return out
 
 
 def sma(vals, n, offset=0):
@@ -296,7 +350,7 @@ def mode_wake():
     d = jst_now()
     try:
         n = fetch_nikkei()
-        line = f"📊 今朝の地合い: {n['icon']} **{n['label']}** (終値 {n['close']:,.0f}円 / 25日線 {n['ma25']:,.0f}円)"
+        line = regime_lines(n)
         if n["verdict"] == "bear":
             line += "\n⛔ **弱気のため今日は全銘柄見送りでOK。二度寝推奨。**"
     except Exception:
@@ -448,23 +502,32 @@ def fetch_screener_csv():
 
 
 def fetch_nikkei_q1():
-    """nikkei_data.js 用の地合いデータ(ローカル millionnights_notify.py と同一形式)"""
-    data = _yahoo("%5EN225", "3mo")
-    closes = [c for c in data["indicators"]["quote"][0]["close"] if c is not None]
-    if len(closes) < 35:
+    """nikkei_data.js 用の地合いデータ(ローカル millionnights_notify.py と同一形式)。
+    Webアプリはこのファイルを raw.githubusercontent から読むので、3層判定の全キーを書き出す。"""
+    closes = _closes("%5EN225", "2y")
+    if len(closes) < 230:
         raise ValueError("日経データ不足")
-    close = closes[-1]
-    ma25_now = sum(closes[-25:]) / 25
-    ma25_old = sum(closes[-35:-10]) / 25
-    if close > ma25_now and ma25_now > ma25_old:
-        verdict, label, icon = "bull", "強気", "🟢"
-    elif close > ma25_now:
-        verdict, label, icon = "mid", "中立", "🟡"
-    else:
-        verdict, label, icon = "bear", "弱気", "🔴"
-    return {"date": jst_now().date().isoformat(), "close": round(close, 2),
-            "ma25": round(ma25_now, 2), "ma25_old": round(ma25_old, 2),
-            "rising": ma25_now > ma25_old, "verdict": verdict, "label": label, "icon": icon}
+    n = _regime(closes, with_breadth=True)
+    return {
+        "date": jst_now().date().isoformat(),
+        "close": round(n["close"], 2),
+        # C層(従来キー・後方互換)
+        "ma25": round(n["ma25"], 2),
+        "ma25_old": round(sma(closes, 25, 10), 2),
+        "rising": n["rising"],
+        "short_warn": n["short_warn"],
+        # A層
+        "ma200": round(n["ma200"], 2) if n["ma200"] else None,
+        "ma200_old": round(sma(closes, 200, 30), 2) if sma(closes, 200, 30) else None,
+        "trend_up": n["trend_up"],
+        "trend": n["trend"],
+        "dev200": n["dev200"],
+        # B層
+        "breadth": n["breadth"],
+        "breadth_label": n["breadth_label"],
+        # 総合
+        "verdict": n["verdict"], "label": n["label"], "icon": n["icon"], "stance": n["stance"],
+    }
 
 
 def write_nikkei_js(q1):

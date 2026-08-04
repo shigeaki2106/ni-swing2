@@ -1,1 +1,1 @@
-window.NIKKEI_Q1 = {"date": "2026-06-22", "close": 71250.06, "ma25": 65731.42, "ma25_old": 63410.35, "rising": true, "verdict": "bull", "label": "強気", "icon": "🟢"};
+window.NIKKEI_Q1 = {"date": "2026-08-04", "close": 64117.89, "ma25": 66670.86, "ma25_old": 69131.38, "rising": false, "short_warn": true, "ma200": 57055.21, "ma200_old": 53573.51, "trend_up": true, "trend": "bull", "dev200": 12.4, "breadth": 63.2, "breadth_label": "まちまち", "verdict": "bull", "label": "強気", "icon": "🟢", "stance": "長期は上昇継続だが短期は調整中 → 試し玉(株数半分)推奨。"};
